@@ -1,7 +1,8 @@
 """Fast and memory-efficient pathlib implementation."""
 
-from fastpath._path import FastPath
-from fastpath._path import PureFastPath
+# Import C implementation
+from fastpath._path_c import FastPath
+from fastpath._path_c import PureFastPath
 
 
 __version__ = "0.1.0"

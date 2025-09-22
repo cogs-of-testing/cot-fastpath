@@ -801,6 +801,8 @@ static PyMemberDef PathAllocator_members[] = {
      "String pool"},
     {"tree", T_OBJECT_EX, offsetof(PathAllocatorObject, tree), READONLY,
      "Tree allocator"},
+    {"_separator", T_STRING, offsetof(PathAllocatorObject, separator), READONLY,
+     "Path separator"},
     {NULL}  /* Sentinel */
 };
 
