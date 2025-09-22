@@ -2,10 +2,10 @@
 
 import pytest
 
-from fastpath._allocator_c import PathAllocator
-from fastpath._allocator_c import StringPool
-from fastpath._allocator_c import TreeAllocator
-from fastpath._allocator_c import ROOT_PARENT
+from fastpath import PathAllocator
+from fastpath import StringPool
+from fastpath import TreeAllocator
+from fastpath import ROOT_PARENT
 
 
 class TestStringPool:

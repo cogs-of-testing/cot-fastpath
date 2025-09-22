@@ -1,29 +1,22 @@
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
-#include <structmember.h>
-#include <string.h>
-#include <stdbool.h>
-
-/* Forward declarations */
-static PyTypeObject PureFastPathType;
-static PyTypeObject FastPathType;
-
-/* Import allocator types */
-static PyObject *allocator_module = NULL;
-static PyObject *PathAllocator_Type = NULL;
+#include "fastpath.h"
 
 /* Global default allocator */
-static PyObject *default_allocator = NULL;
+PyObject *default_allocator = NULL;
+
+PyObject *
+get_default_allocator(void)
+{
+    if (default_allocator == NULL) {
+        /* Create default allocator */
+        default_allocator = PyObject_CallObject((PyObject *)&PathAllocatorType, NULL);
+    }
+    Py_XINCREF(default_allocator);
+    return default_allocator;
+}
 
 /* ========================================================================
- * PureFastPath - Pure path implementation
+ * PureFastPath implementation
  * ======================================================================== */
-
-typedef struct {
-    PyObject_HEAD
-    PyObject *_allocator;  /* PathAllocator instance */
-    Py_ssize_t _node_idx;  /* Node index in tree */
-} PureFastPathObject;
 
 static void
 PureFastPath_dealloc(PureFastPathObject *self)
@@ -44,23 +37,11 @@ PureFastPath_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return (PyObject *)self;
 }
 
-static PyObject *
-get_default_allocator(void)
-{
-    if (default_allocator == NULL) {
-        /* Create default allocator */
-        default_allocator = PyObject_CallObject(PathAllocator_Type, NULL);
-    }
-    Py_XINCREF(default_allocator);
-    return default_allocator;
-}
-
 static int
 PureFastPath_init(PureFastPathObject *self, PyObject *args, PyObject *kwds)
 {
     PyObject *allocator = NULL;
     Py_ssize_t node_idx = -1;
-    PyObject *parts = NULL;
     static char *kwlist[] = {"allocator", "_node_idx", NULL};
 
     /* First try to parse with keywords for internal use */
@@ -129,7 +110,7 @@ PureFastPath_init(PureFastPathObject *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
-static PyObject *
+PyObject *
 PureFastPath_str(PureFastPathObject *self)
 {
     /* Get parts from allocator */
@@ -171,7 +152,7 @@ PureFastPath_repr(PureFastPathObject *self)
     return result;
 }
 
-static PyObject *
+PyObject *
 PureFastPath_truediv(PureFastPathObject *self, PyObject *other)
 {
     /* Handle path joining with / operator */
@@ -221,7 +202,7 @@ PureFastPath_get_parts(PureFastPathObject *self, void *closure)
     return result;
 }
 
-static PyObject *
+PyObject *
 PureFastPath_get_parent(PureFastPathObject *self, void *closure)
 {
     PyObject *get_parent = PyObject_GetAttrString(self->_allocator, "get_parent");
@@ -247,7 +228,7 @@ PureFastPath_get_parent(PureFastPathObject *self, void *closure)
     return new_path;
 }
 
-static PyObject *
+PyObject *
 PureFastPath_get_name(PureFastPathObject *self, void *closure)
 {
     PyObject *get_name = PyObject_GetAttrString(self->_allocator, "get_name");
@@ -346,49 +327,6 @@ PureFastPath_joinpath(PureFastPathObject *self, PyObject *args)
     return current;
 }
 
-static PyObject *
-PureFastPath_with_name(PureFastPathObject *self, PyObject *args)
-{
-    const char *name;
-    if (!PyArg_ParseTuple(args, "s", &name))
-        return NULL;
-
-    /* Get parent and join with new name */
-    PyObject *parent = PureFastPath_get_parent(self, NULL);
-    if (parent == NULL)
-        return NULL;
-
-    PyObject *name_obj = PyUnicode_FromString(name);
-    PyObject *result = PureFastPath_truediv((PureFastPathObject *)parent, name_obj);
-    Py_DECREF(parent);
-    Py_DECREF(name_obj);
-
-    return result;
-}
-
-static PyObject *
-PureFastPath_with_suffix(PureFastPathObject *self, PyObject *args)
-{
-    const char *suffix;
-    if (!PyArg_ParseTuple(args, "s", &suffix))
-        return NULL;
-
-    /* Get stem and append new suffix */
-    PyObject *stem = PureFastPath_get_stem(self, NULL);
-    if (stem == NULL)
-        return NULL;
-
-    PyObject *new_name = PyUnicode_FromFormat("%U%s", stem, suffix);
-    Py_DECREF(stem);
-
-    PyObject *result_args = Py_BuildValue("(O)", new_name);
-    PyObject *result = PureFastPath_with_name(self, result_args);
-    Py_DECREF(result_args);
-    Py_DECREF(new_name);
-
-    return result;
-}
-
 static Py_hash_t
 PureFastPath_hash(PureFastPathObject *self)
 {
@@ -442,10 +380,6 @@ static PyMethodDef PureFastPath_methods[] = {
      "Return True if the path is absolute"},
     {"joinpath", (PyCFunction)PureFastPath_joinpath, METH_VARARGS,
      "Join one or more path components"},
-    {"with_name", (PyCFunction)PureFastPath_with_name, METH_VARARGS,
-     "Return a new path with the file name changed"},
-    {"with_suffix", (PyCFunction)PureFastPath_with_suffix, METH_VARARGS,
-     "Return a new path with the suffix changed"},
     {NULL}  /* Sentinel */
 };
 
@@ -464,44 +398,14 @@ static PyGetSetDef PureFastPath_getsetters[] = {
 };
 
 static PyNumberMethods PureFastPath_as_number = {
-    0,  /* nb_add */
-    0,  /* nb_subtract */
-    0,  /* nb_multiply */
-    0,  /* nb_remainder */
-    0,  /* nb_divmod */
-    0,  /* nb_power */
-    0,  /* nb_negative */
-    0,  /* nb_positive */
-    0,  /* nb_absolute */
-    0,  /* nb_bool */
-    0,  /* nb_invert */
-    0,  /* nb_lshift */
-    0,  /* nb_rshift */
-    0,  /* nb_and */
-    0,  /* nb_xor */
-    0,  /* nb_or */
-    0,  /* nb_int */
-    0,  /* nb_reserved */
-    0,  /* nb_float */
-    0,  /* nb_inplace_add */
-    0,  /* nb_inplace_subtract */
-    0,  /* nb_inplace_multiply */
-    0,  /* nb_inplace_remainder */
-    0,  /* nb_inplace_power */
-    0,  /* nb_inplace_lshift */
-    0,  /* nb_inplace_rshift */
-    0,  /* nb_inplace_and */
-    0,  /* nb_inplace_xor */
-    0,  /* nb_inplace_or */
-    0,  /* nb_floor_divide */
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     (binaryfunc)PureFastPath_truediv,  /* nb_true_divide */
-    0,  /* nb_inplace_floor_divide */
-    0,  /* nb_inplace_true_divide */
+    0, 0
 };
 
-static PyTypeObject PureFastPathType = {
+PyTypeObject PureFastPathType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "fastpath._path_c.PureFastPath",
+    .tp_name = "fastpath.PureFastPath",
     .tp_doc = "Pure fast path implementation",
     .tp_basicsize = sizeof(PureFastPathObject),
     .tp_itemsize = 0,
@@ -519,12 +423,8 @@ static PyTypeObject PureFastPathType = {
 };
 
 /* ========================================================================
- * FastPath - Concrete path with filesystem operations
+ * FastPath implementation
  * ======================================================================== */
-
-typedef struct {
-    PureFastPathObject base;  /* Inherits from PureFastPath */
-} FastPathObject;
 
 static PyObject *
 FastPath_exists(FastPathObject *self, PyObject *Py_UNUSED(ignored))
@@ -557,250 +457,15 @@ FastPath_exists(FastPathObject *self, PyObject *Py_UNUSED(ignored))
     return result;
 }
 
-static PyObject *
-FastPath_is_file(FastPathObject *self, PyObject *Py_UNUSED(ignored))
-{
-    PyObject *path_str = PureFastPath_str((PureFastPathObject *)self);
-    if (path_str == NULL)
-        return NULL;
-
-    PyObject *os_path = PyImport_ImportModule("os.path");
-    if (os_path == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *isfile = PyObject_GetAttrString(os_path, "isfile");
-    Py_DECREF(os_path);
-    if (isfile == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *args = Py_BuildValue("(O)", path_str);
-    PyObject *result = PyObject_Call(isfile, args, NULL);
-    Py_DECREF(args);
-    Py_DECREF(isfile);
-    Py_DECREF(path_str);
-
-    return result;
-}
-
-static PyObject *
-FastPath_is_dir(FastPathObject *self, PyObject *Py_UNUSED(ignored))
-{
-    PyObject *path_str = PureFastPath_str((PureFastPathObject *)self);
-    if (path_str == NULL)
-        return NULL;
-
-    PyObject *os_path = PyImport_ImportModule("os.path");
-    if (os_path == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *isdir = PyObject_GetAttrString(os_path, "isdir");
-    Py_DECREF(os_path);
-    if (isdir == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *args = Py_BuildValue("(O)", path_str);
-    PyObject *result = PyObject_Call(isdir, args, NULL);
-    Py_DECREF(args);
-    Py_DECREF(isdir);
-    Py_DECREF(path_str);
-
-    return result;
-}
-
-static PyObject *
-FastPath_read_text(FastPathObject *self, PyObject *args, PyObject *kwds)
-{
-    const char *encoding = "utf-8";
-    static char *kwlist[] = {"encoding", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|s", kwlist, &encoding))
-        return NULL;
-
-    PyObject *path_str = PureFastPath_str((PureFastPathObject *)self);
-    if (path_str == NULL)
-        return NULL;
-
-    /* Open and read file */
-    PyObject *io_module = PyImport_ImportModule("io");
-    if (io_module == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *open_func = PyObject_GetAttrString(io_module, "open");
-    Py_DECREF(io_module);
-    if (open_func == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *open_args = Py_BuildValue("(Os)", path_str, "r");
-    PyObject *open_kwargs = Py_BuildValue("{s:s}", "encoding", encoding);
-    PyObject *file = PyObject_Call(open_func, open_args, open_kwargs);
-    Py_DECREF(open_func);
-    Py_DECREF(open_args);
-    Py_DECREF(open_kwargs);
-    Py_DECREF(path_str);
-
-    if (file == NULL)
-        return NULL;
-
-    /* Read content */
-    PyObject *read_method = PyObject_GetAttrString(file, "read");
-    if (read_method == NULL) {
-        Py_DECREF(file);
-        return NULL;
-    }
-
-    PyObject *content = PyObject_CallObject(read_method, NULL);
-    Py_DECREF(read_method);
-
-    /* Close file */
-    PyObject *close_method = PyObject_GetAttrString(file, "close");
-    if (close_method != NULL) {
-        PyObject_CallObject(close_method, NULL);
-        Py_DECREF(close_method);
-    }
-    Py_DECREF(file);
-
-    return content;
-}
-
-static PyObject *
-FastPath_write_text(FastPathObject *self, PyObject *args, PyObject *kwds)
-{
-    const char *data;
-    const char *encoding = "utf-8";
-    static char *kwlist[] = {"data", "encoding", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "s|s", kwlist, &data, &encoding))
-        return NULL;
-
-    PyObject *path_str = PureFastPath_str((PureFastPathObject *)self);
-    if (path_str == NULL)
-        return NULL;
-
-    /* Open and write file */
-    PyObject *io_module = PyImport_ImportModule("io");
-    if (io_module == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *open_func = PyObject_GetAttrString(io_module, "open");
-    Py_DECREF(io_module);
-    if (open_func == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *open_args = Py_BuildValue("(Os)", path_str, "w");
-    PyObject *open_kwargs = Py_BuildValue("{s:s}", "encoding", encoding);
-    PyObject *file = PyObject_Call(open_func, open_args, open_kwargs);
-    Py_DECREF(open_func);
-    Py_DECREF(open_args);
-    Py_DECREF(open_kwargs);
-    Py_DECREF(path_str);
-
-    if (file == NULL)
-        return NULL;
-
-    /* Write content */
-    PyObject *write_method = PyObject_GetAttrString(file, "write");
-    if (write_method == NULL) {
-        Py_DECREF(file);
-        return NULL;
-    }
-
-    PyObject *write_args = Py_BuildValue("(s)", data);
-    PyObject *bytes_written = PyObject_Call(write_method, write_args, NULL);
-    Py_DECREF(write_method);
-    Py_DECREF(write_args);
-
-    /* Close file */
-    PyObject *close_method = PyObject_GetAttrString(file, "close");
-    if (close_method != NULL) {
-        PyObject_CallObject(close_method, NULL);
-        Py_DECREF(close_method);
-    }
-    Py_DECREF(file);
-
-    if (bytes_written == NULL)
-        return NULL;
-
-    Py_DECREF(bytes_written);
-    Py_RETURN_NONE;
-}
-
-static PyObject *
-FastPath_mkdir(FastPathObject *self, PyObject *args, PyObject *kwds)
-{
-    int parents = 0;
-    int exist_ok = 0;
-    static char *kwlist[] = {"parents", "exist_ok", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|pp", kwlist, &parents, &exist_ok))
-        return NULL;
-
-    PyObject *path_str = PureFastPath_str((PureFastPathObject *)self);
-    if (path_str == NULL)
-        return NULL;
-
-    PyObject *os_module = PyImport_ImportModule("os");
-    if (os_module == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *makedirs = PyObject_GetAttrString(os_module, "makedirs");
-    Py_DECREF(os_module);
-    if (makedirs == NULL) {
-        Py_DECREF(path_str);
-        return NULL;
-    }
-
-    PyObject *mk_args = Py_BuildValue("(O)", path_str);
-    PyObject *mk_kwargs = Py_BuildValue("{s:O}", "exist_ok", exist_ok ? Py_True : Py_False);
-    PyObject *result = PyObject_Call(makedirs, mk_args, mk_kwargs);
-    Py_DECREF(makedirs);
-    Py_DECREF(mk_args);
-    Py_DECREF(mk_kwargs);
-    Py_DECREF(path_str);
-
-    if (result == NULL)
-        return NULL;
-
-    Py_DECREF(result);
-    Py_RETURN_NONE;
-}
-
 static PyMethodDef FastPath_methods[] = {
     {"exists", (PyCFunction)FastPath_exists, METH_NOARGS,
      "Check if path exists"},
-    {"is_file", (PyCFunction)FastPath_is_file, METH_NOARGS,
-     "Check if path is a file"},
-    {"is_dir", (PyCFunction)FastPath_is_dir, METH_NOARGS,
-     "Check if path is a directory"},
-    {"read_text", (PyCFunction)FastPath_read_text, METH_VARARGS | METH_KEYWORDS,
-     "Read text from file"},
-    {"write_text", (PyCFunction)FastPath_write_text, METH_VARARGS | METH_KEYWORDS,
-     "Write text to file"},
-    {"mkdir", (PyCFunction)FastPath_mkdir, METH_VARARGS | METH_KEYWORDS,
-     "Create directory"},
     {NULL}  /* Sentinel */
 };
 
-static PyTypeObject FastPathType = {
+PyTypeObject FastPathType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "fastpath._path_c.FastPath",
+    .tp_name = "fastpath.FastPath",
     .tp_doc = "Fast path implementation with filesystem operations",
     .tp_basicsize = sizeof(FastPathObject),
     .tp_itemsize = 0,
@@ -808,71 +473,3 @@ static PyTypeObject FastPathType = {
     .tp_base = &PureFastPathType,  /* Inherit from PureFastPath */
     .tp_methods = FastPath_methods,
 };
-
-/* ========================================================================
- * Module initialization
- * ======================================================================== */
-
-static PyModuleDef pathmodule = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "_path_c",
-    .m_doc = "C implementation of fast path classes",
-    .m_size = -1,
-};
-
-PyMODINIT_FUNC
-PyInit__path_c(void)
-{
-    PyObject *m;
-
-    /* Import allocator module */
-    allocator_module = PyImport_ImportModule("fastpath._allocator_c");
-    if (allocator_module == NULL)
-        return NULL;
-
-    PathAllocator_Type = PyObject_GetAttrString(allocator_module, "PathAllocator");
-    if (PathAllocator_Type == NULL) {
-        Py_DECREF(allocator_module);
-        return NULL;
-    }
-
-    if (PyType_Ready(&PureFastPathType) < 0) {
-        Py_DECREF(allocator_module);
-        Py_DECREF(PathAllocator_Type);
-        return NULL;
-    }
-
-    if (PyType_Ready(&FastPathType) < 0) {
-        Py_DECREF(allocator_module);
-        Py_DECREF(PathAllocator_Type);
-        return NULL;
-    }
-
-    m = PyModule_Create(&pathmodule);
-    if (m == NULL) {
-        Py_DECREF(allocator_module);
-        Py_DECREF(PathAllocator_Type);
-        return NULL;
-    }
-
-    Py_INCREF(&PureFastPathType);
-    if (PyModule_AddObject(m, "PureFastPath", (PyObject *)&PureFastPathType) < 0) {
-        Py_DECREF(&PureFastPathType);
-        Py_DECREF(m);
-        Py_DECREF(allocator_module);
-        Py_DECREF(PathAllocator_Type);
-        return NULL;
-    }
-
-    Py_INCREF(&FastPathType);
-    if (PyModule_AddObject(m, "FastPath", (PyObject *)&FastPathType) < 0) {
-        Py_DECREF(&FastPathType);
-        Py_DECREF(&PureFastPathType);
-        Py_DECREF(m);
-        Py_DECREF(allocator_module);
-        Py_DECREF(PathAllocator_Type);
-        return NULL;
-    }
-
-    return m;
-}

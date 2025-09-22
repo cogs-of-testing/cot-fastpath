@@ -3,23 +3,22 @@
 from setuptools import setup, find_packages, Extension
 
 
-# Define C extension modules
-allocator_c = Extension(
-    "fastpath._allocator_c",
-    sources=["src/fastpath/_allocator_c.c"],
-    extra_compile_args=["-O3", "-Wall", "-Wextra"],
-)
-
-path_c = Extension(
-    "fastpath._path_c",
-    sources=["src/fastpath/_path_c.c"],
-    extra_compile_args=["-O3", "-Wall", "-Wextra"],
+# Define the unified C extension module
+fastpath_module = Extension(
+    "fastpath",
+    sources=[
+        "src/fastpath/module.c",
+        "src/fastpath/allocator.c",
+        "src/fastpath/path.c",
+    ],
+    include_dirs=["src/fastpath"],
+    extra_compile_args=["-O3", "-Wall"],
 )
 
 
 if __name__ == "__main__":
     setup(
-        ext_modules=[allocator_c, path_c],
-        packages=find_packages(where="src"),
-        package_dir={"": "src"},
+        ext_modules=[fastpath_module],
+        packages=[],  # No Python packages, everything is in C
+        package_dir={},
     )

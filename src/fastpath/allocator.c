@@ -1,17 +1,8 @@
-#define PY_SSIZE_T_CLEAN
-#include <Python.h>
-#include <structmember.h>
-#include <string.h>
+#include "fastpath.h"
 
 /* ========================================================================
- * StringPool - Efficient string interning
+ * StringPool implementation
  * ======================================================================== */
-
-typedef struct {
-    PyObject_HEAD
-    PyObject *strings;      /* List of interned strings */
-    PyObject *string_map;   /* Dict mapping strings to IDs */
-} StringPoolObject;
 
 static void
 StringPool_dealloc(StringPoolObject *self)
@@ -41,7 +32,7 @@ StringPool_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     return (PyObject *)self;
 }
 
-static PyObject *
+PyObject *
 StringPool_intern(StringPoolObject *self, PyObject *args)
 {
     PyObject *s;
@@ -72,7 +63,7 @@ StringPool_intern(StringPoolObject *self, PyObject *args)
     return id_obj;
 }
 
-static PyObject *
+PyObject *
 StringPool_get_string(StringPoolObject *self, PyObject *args)
 {
     Py_ssize_t string_id;
@@ -103,20 +94,11 @@ static PyMethodDef StringPool_methods[] = {
 
 static PySequenceMethods StringPool_as_sequence = {
     (lenfunc)StringPool_length,  /* sq_length */
-    0,  /* sq_concat */
-    0,  /* sq_repeat */
-    0,  /* sq_item */
-    0,  /* sq_slice */
-    0,  /* sq_ass_item */
-    0,  /* sq_ass_slice */
-    0,  /* sq_contains */
-    0,  /* sq_inplace_concat */
-    0,  /* sq_inplace_repeat */
 };
 
-static PyTypeObject StringPoolType = {
+PyTypeObject StringPoolType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "fastpath._allocator_c.StringPool",
+    .tp_name = "fastpath.StringPool",
     .tp_doc = "String interning pool",
     .tp_basicsize = sizeof(StringPoolObject),
     .tp_itemsize = 0,
@@ -128,28 +110,8 @@ static PyTypeObject StringPoolType = {
 };
 
 /* ========================================================================
- * TreeNode - Tree node structure
+ * TreeAllocator implementation
  * ======================================================================== */
-
-typedef struct {
-    Py_ssize_t parent_idx;
-    Py_ssize_t name_id;
-} TreeNode;
-
-/* ========================================================================
- * TreeAllocator - Tree structure for paths
- * ======================================================================== */
-
-typedef struct {
-    PyObject_HEAD
-    TreeNode *nodes;           /* Array of nodes */
-    Py_ssize_t node_count;     /* Number of nodes */
-    Py_ssize_t node_capacity;  /* Capacity of nodes array */
-    PyObject *string_pool;     /* Reference to string pool */
-    Py_ssize_t relative_root;  /* Index of relative root */
-    Py_ssize_t absolute_root;  /* Index of absolute root */
-    PyObject *drive_roots;     /* Dict of drive roots */
-} TreeAllocatorObject;
 
 static void
 TreeAllocator_dealloc(TreeAllocatorObject *self)
@@ -231,7 +193,7 @@ TreeAllocator_init(TreeAllocatorObject *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
-static Py_ssize_t
+Py_ssize_t
 TreeAllocator_add_node(TreeAllocatorObject *self, Py_ssize_t parent_idx, Py_ssize_t name_id)
 {
     /* Grow array if needed */
@@ -254,7 +216,7 @@ TreeAllocator_add_node(TreeAllocatorObject *self, Py_ssize_t parent_idx, Py_ssiz
     return node_idx;
 }
 
-static PyObject *
+PyObject *
 TreeAllocator_add_node_py(TreeAllocatorObject *self, PyObject *args)
 {
     Py_ssize_t parent_idx, name_id;
@@ -268,7 +230,7 @@ TreeAllocator_add_node_py(TreeAllocatorObject *self, PyObject *args)
     return PyLong_FromSsize_t(node_idx);
 }
 
-static PyObject *
+PyObject *
 TreeAllocator_get_parts(TreeAllocatorObject *self, PyObject *args)
 {
     Py_ssize_t node_idx;
@@ -309,7 +271,7 @@ TreeAllocator_get_parts(TreeAllocatorObject *self, PyObject *args)
     return parts;
 }
 
-static PyObject *
+PyObject *
 TreeAllocator_find_child(TreeAllocatorObject *self, PyObject *args)
 {
     Py_ssize_t parent_idx, name_id;
@@ -340,6 +302,21 @@ TreeAllocator_get_parent_idx(TreeAllocatorObject *self, PyObject *args)
     }
 
     return PyLong_FromSsize_t(self->nodes[node_idx].parent_idx);
+}
+
+static PyObject *
+TreeAllocator_get_name_id(TreeAllocatorObject *self, PyObject *args)
+{
+    Py_ssize_t node_idx;
+    if (!PyArg_ParseTuple(args, "n", &node_idx))
+        return NULL;
+
+    if (node_idx < 0 || node_idx >= self->node_count) {
+        PyErr_SetString(PyExc_IndexError, "Invalid node index");
+        return NULL;
+    }
+
+    return PyLong_FromSsize_t(self->nodes[node_idx].name_id);
 }
 
 static PyObject *
@@ -387,21 +364,6 @@ TreeAllocator_is_root(TreeAllocatorObject *self, PyObject *args)
     Py_RETURN_FALSE;
 }
 
-static PyObject *
-TreeAllocator_get_name_id(TreeAllocatorObject *self, PyObject *args)
-{
-    Py_ssize_t node_idx;
-    if (!PyArg_ParseTuple(args, "n", &node_idx))
-        return NULL;
-
-    if (node_idx < 0 || node_idx >= self->node_count) {
-        PyErr_SetString(PyExc_IndexError, "Invalid node index");
-        return NULL;
-    }
-
-    return PyLong_FromSsize_t(self->nodes[node_idx].name_id);
-}
-
 static PyMethodDef TreeAllocator_methods[] = {
     {"add_node", (PyCFunction)TreeAllocator_add_node_py, METH_VARARGS,
      "Add a new node to the tree"},
@@ -432,9 +394,9 @@ static PyMemberDef TreeAllocator_members[] = {
     {NULL}  /* Sentinel */
 };
 
-static PyTypeObject TreeAllocatorType = {
+PyTypeObject TreeAllocatorType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "fastpath._allocator_c.TreeAllocator",
+    .tp_name = "fastpath.TreeAllocator",
     .tp_doc = "Tree allocator for paths",
     .tp_basicsize = sizeof(TreeAllocatorObject),
     .tp_itemsize = 0,
@@ -447,16 +409,8 @@ static PyTypeObject TreeAllocatorType = {
 };
 
 /* ========================================================================
- * PathAllocator - Main allocator combining string pool and tree
+ * PathAllocator implementation
  * ======================================================================== */
-
-typedef struct {
-    PyObject_HEAD
-    StringPoolObject *string_pool;
-    TreeAllocatorObject *tree;
-    PyObject *cache;          /* LRU cache dict */
-    const char *separator;    /* Path separator */
-} PathAllocatorObject;
 
 static void
 PathAllocator_dealloc(PathAllocatorObject *self)
@@ -512,7 +466,7 @@ PathAllocator_init(PathAllocatorObject *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
-static PyObject *
+PyObject *
 PathAllocator_from_parts(PathAllocatorObject *self, PyObject *args)
 {
     /* Accept variable arguments */
@@ -597,63 +551,7 @@ PathAllocator_from_parts(PathAllocatorObject *self, PyObject *args)
     return PyLong_FromSsize_t(current_idx);
 }
 
-static PyObject *
-PathAllocator_get_parts(PathAllocatorObject *self, PyObject *args)
-{
-    Py_ssize_t node_idx;
-    if (!PyArg_ParseTuple(args, "n", &node_idx))
-        return NULL;
-
-    PyObject *tree_args = Py_BuildValue("(n)", node_idx);
-    PyObject *result = TreeAllocator_get_parts(self->tree, tree_args);
-    Py_DECREF(tree_args);
-
-    return result;
-}
-
-static PyObject *
-PathAllocator_get_parent(PathAllocatorObject *self, PyObject *args)
-{
-    Py_ssize_t node_idx;
-    if (!PyArg_ParseTuple(args, "n", &node_idx))
-        return NULL;
-
-    if (node_idx < 0 || node_idx >= self->tree->node_count) {
-        PyErr_SetString(PyExc_IndexError, "Invalid node index");
-        return NULL;
-    }
-
-    Py_ssize_t parent_idx = self->tree->nodes[node_idx].parent_idx;
-    if (parent_idx < 0) {
-        return PyLong_FromSsize_t(node_idx);  /* Root is its own parent */
-    }
-
-    return PyLong_FromSsize_t(parent_idx);
-}
-
-static PyObject *
-PathAllocator_get_name(PathAllocatorObject *self, PyObject *args)
-{
-    Py_ssize_t node_idx;
-    if (!PyArg_ParseTuple(args, "n", &node_idx))
-        return NULL;
-
-    if (node_idx < 0 || node_idx >= self->tree->node_count) {
-        PyErr_SetString(PyExc_IndexError, "Invalid node index");
-        return NULL;
-    }
-
-    Py_ssize_t name_id = self->tree->nodes[node_idx].name_id;
-    PyObject *name_id_obj = PyLong_FromSsize_t(name_id);
-    PyObject *get_args = Py_BuildValue("(O)", name_id_obj);
-    PyObject *result = StringPool_get_string(self->string_pool, get_args);
-    Py_DECREF(get_args);
-    Py_DECREF(name_id_obj);
-
-    return result;
-}
-
-static PyObject *
+PyObject *
 PathAllocator_from_string(PathAllocatorObject *self, PyObject *args)
 {
     const char *path_str;
@@ -689,6 +587,62 @@ PathAllocator_from_string(PathAllocatorObject *self, PyObject *args)
     /* Call from_parts */
     PyObject *result = PathAllocator_from_parts(self, parts_tuple);
     Py_DECREF(parts_tuple);
+    return result;
+}
+
+PyObject *
+PathAllocator_get_parts(PathAllocatorObject *self, PyObject *args)
+{
+    Py_ssize_t node_idx;
+    if (!PyArg_ParseTuple(args, "n", &node_idx))
+        return NULL;
+
+    PyObject *tree_args = Py_BuildValue("(n)", node_idx);
+    PyObject *result = TreeAllocator_get_parts(self->tree, tree_args);
+    Py_DECREF(tree_args);
+
+    return result;
+}
+
+PyObject *
+PathAllocator_get_parent(PathAllocatorObject *self, PyObject *args)
+{
+    Py_ssize_t node_idx;
+    if (!PyArg_ParseTuple(args, "n", &node_idx))
+        return NULL;
+
+    if (node_idx < 0 || node_idx >= self->tree->node_count) {
+        PyErr_SetString(PyExc_IndexError, "Invalid node index");
+        return NULL;
+    }
+
+    Py_ssize_t parent_idx = self->tree->nodes[node_idx].parent_idx;
+    if (parent_idx < 0) {
+        return PyLong_FromSsize_t(node_idx);  /* Root is its own parent */
+    }
+
+    return PyLong_FromSsize_t(parent_idx);
+}
+
+PyObject *
+PathAllocator_get_name(PathAllocatorObject *self, PyObject *args)
+{
+    Py_ssize_t node_idx;
+    if (!PyArg_ParseTuple(args, "n", &node_idx))
+        return NULL;
+
+    if (node_idx < 0 || node_idx >= self->tree->node_count) {
+        PyErr_SetString(PyExc_IndexError, "Invalid node index");
+        return NULL;
+    }
+
+    Py_ssize_t name_id = self->tree->nodes[node_idx].name_id;
+    PyObject *name_id_obj = PyLong_FromSsize_t(name_id);
+    PyObject *get_args = Py_BuildValue("(O)", name_id_obj);
+    PyObject *result = StringPool_get_string(self->string_pool, get_args);
+    Py_DECREF(get_args);
+    Py_DECREF(name_id_obj);
+
     return result;
 }
 
@@ -806,9 +760,9 @@ static PyMemberDef PathAllocator_members[] = {
     {NULL}  /* Sentinel */
 };
 
-static PyTypeObject PathAllocatorType = {
+PyTypeObject PathAllocatorType = {
     PyVarObject_HEAD_INIT(NULL, 0)
-    .tp_name = "fastpath._allocator_c.PathAllocator",
+    .tp_name = "fastpath.PathAllocator",
     .tp_doc = "Path allocator",
     .tp_basicsize = sizeof(PathAllocatorObject),
     .tp_itemsize = 0,
@@ -819,62 +773,3 @@ static PyTypeObject PathAllocatorType = {
     .tp_methods = PathAllocator_methods,
     .tp_members = PathAllocator_members,
 };
-
-/* ========================================================================
- * Module initialization
- * ======================================================================== */
-
-static PyModuleDef allocatormodule = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "_allocator_c",
-    .m_doc = "C implementation of path allocator",
-    .m_size = -1,
-};
-
-PyMODINIT_FUNC
-PyInit__allocator_c(void)
-{
-    PyObject *m;
-
-    if (PyType_Ready(&StringPoolType) < 0)
-        return NULL;
-
-    if (PyType_Ready(&TreeAllocatorType) < 0)
-        return NULL;
-
-    if (PyType_Ready(&PathAllocatorType) < 0)
-        return NULL;
-
-    m = PyModule_Create(&allocatormodule);
-    if (m == NULL)
-        return NULL;
-
-    Py_INCREF(&StringPoolType);
-    if (PyModule_AddObject(m, "StringPool", (PyObject *)&StringPoolType) < 0) {
-        Py_DECREF(&StringPoolType);
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    Py_INCREF(&TreeAllocatorType);
-    if (PyModule_AddObject(m, "TreeAllocator", (PyObject *)&TreeAllocatorType) < 0) {
-        Py_DECREF(&TreeAllocatorType);
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    Py_INCREF(&PathAllocatorType);
-    if (PyModule_AddObject(m, "PathAllocator", (PyObject *)&PathAllocatorType) < 0) {
-        Py_DECREF(&PathAllocatorType);
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    /* Add ROOT_PARENT constant */
-    if (PyModule_AddIntConstant(m, "ROOT_PARENT", -1) < 0) {
-        Py_DECREF(m);
-        return NULL;
-    }
-
-    return m;
-}
