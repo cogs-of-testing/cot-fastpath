@@ -16,7 +16,7 @@ from typing import Iterator
 from typing import Optional
 from typing import Union
 
-from fastpath._allocator import PathAllocator
+from fastpath._allocator_c import PathAllocator
 
 
 if TYPE_CHECKING:

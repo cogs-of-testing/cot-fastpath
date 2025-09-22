@@ -10,7 +10,7 @@ from typing import Union
 import pytest
 
 from fastpath import FastPath
-from fastpath._allocator import PathAllocator
+from fastpath._allocator_c import PathAllocator
 
 
 PathClass = Union[Type[StdPath], Type[FastPath]]

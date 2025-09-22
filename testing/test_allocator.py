@@ -2,9 +2,10 @@
 
 import pytest
 
-from fastpath._allocator import PathAllocator
-from fastpath._allocator import StringPool
-from fastpath._allocator import TreeAllocator
+from fastpath._allocator_c import PathAllocator
+from fastpath._allocator_c import StringPool
+from fastpath._allocator_c import TreeAllocator
+from fastpath._allocator_c import ROOT_PARENT
 
 
 class TestStringPool:
@@ -64,12 +65,12 @@ class TestTreeAllocator:
 
         # Test relative root
         assert tree.relative_root == 0
-        assert tree.get_parent_idx(tree.relative_root) == TreeAllocator.ROOT_PARENT
+        assert tree.get_parent_idx(tree.relative_root) == ROOT_PARENT
         assert pool.get_string(tree.get_name_id(tree.relative_root)) == ""
 
         # Test absolute root
         assert tree.absolute_root == 1
-        assert tree.get_parent_idx(tree.absolute_root) == TreeAllocator.ROOT_PARENT
+        assert tree.get_parent_idx(tree.absolute_root) == ROOT_PARENT
         assert pool.get_string(tree.get_name_id(tree.absolute_root)) == "/"
 
     def test_add_node(self) -> None:
